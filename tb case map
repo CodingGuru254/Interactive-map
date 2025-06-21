@@ -1,0 +1,76 @@
+# Install required packages
+!pip install geopandas folium shapely
+
+import pandas as pd
+import geopandas as gpd
+from shapely import wkt
+import folium
+from folium.plugins import MarkerCluster
+from google.colab import files
+import random
+
+# Upload the polygon file
+uploaded = files.upload()
+filename = list(uploaded.keys())[0]
+
+# Read CSV and convert geometry
+df = pd.read_csv(filename)
+df['geometry'] = df['geometry'].apply(wkt.loads)
+gdf = gpd.GeoDataFrame(df, geometry='geometry', crs='EPSG:4326')
+
+# Assign a random color to each polygon
+def random_color():
+    return "#{:06x}".format(random.randint(0, 0xFFFFFF))
+
+gdf['color'] = [random_color() for _ in range(len(gdf))]
+
+# Simulate TB strain data at polygon centroids
+mutations = ['katG_S315T', 'rpoB_S450L', 'inhA_C15T', 'gyrA_D94G']
+resistances = ['INH', 'RIF', 'MDR', 'XDR']
+strain_data = []
+
+for i, row in gdf.iterrows():
+    centroid = row.geometry.centroid
+    strain_data.append({
+        'strain_id': f'TB{random.randint(100,999)}',
+        'mutation': random.choice(mutations),
+        'resistance': random.choice(resistances),
+        'lat': centroid.y,
+        'lon': centroid.x
+    })
+
+strain_df = pd.DataFrame(strain_data)
+
+# Initialize Folium map
+m = folium.Map(location=[-1.2921, 36.8219], zoom_start=11)
+
+# Add color-coded polygons
+for _, row in gdf.iterrows():
+    folium.GeoJson(
+        row.geometry,
+        style_function=lambda feat, color=row['color']: {
+            'fillColor': color,
+            'color': 'black',
+            'weight': 1,
+            'fillOpacity': 0.4
+        }
+    ).add_to(m)
+
+# Add TB markers
+mc = MarkerCluster().add_to(m)
+for _, r in strain_df.iterrows():
+    popup = f"""
+    <b>Strain:</b> {r['strain_id']}<br>
+    <b>Mutation:</b> {r['mutation']}<br>
+    <b>Resistance:</b> {r['resistance']}
+    """
+    color = 'red' if r['resistance'] in ['RIF', 'MDR', 'XDR'] else 'blue'
+    folium.Marker(
+        [r['lat'], r['lon']],
+        popup=popup,
+        icon=folium.Icon(color=color)
+    ).add_to(mc)
+
+# Add layer controls and display
+folium.LayerControl().add_to(m)
+m
